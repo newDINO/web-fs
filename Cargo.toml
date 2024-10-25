@@ -1,0 +1,27 @@
+[package]
+name = "web-fs"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen = "*"
+wasm-bindgen-futures = { version = "*", features = ["futures-core-03-stream"] }
+web-sys = { version = "*", features = [
+    "StorageManager",
+    "Window",
+    "Navigator",
+    "FileSystemGetFileOptions",
+    "FileSystemDirectoryHandle",
+    "FileSystemFileHandle",
+    "FileSystemWritableFileStream",
+    "Worker",
+    "MessageEvent",
+    "FileSystemGetDirectoryOptions",
+] }
+js-sys = "*"
+futures-lite = "*"
+serde = { version = "*", features = ["derive"] }
+serde-wasm-bindgen = "*"
