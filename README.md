@@ -1,7 +1,7 @@
 An asynchronous file system in webassembly based on *File System API*.  
 Still under development, many features missing.
 ## Example
-```
+```rust
 // provide functions like `read_to_string()` and `write_all()`
 use futures_lite::AsyncWriteExt;
 use futures_lite::AsyncReadExt;
