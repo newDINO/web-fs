@@ -261,6 +261,8 @@ impl Fs {
 
                     if let Some(error) = error {
                         state.result = Some(Err(Error::other(error)));
+                    } else {
+                        state.result = Some(Ok(()))
                     }
 
                     if let Some(waker) = state.waker.take() {
@@ -281,6 +283,8 @@ impl Fs {
 
                     if let Some(error) = error {
                         state.result = Some(Err(Error::other(error)));
+                    } else {
+                        state.result = Some(Ok(()))
                     }
 
                     if let Some(waker) = state.waker.take() {
