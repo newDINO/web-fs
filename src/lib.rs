@@ -1,86 +1,29 @@
-/*!
-An asynchronous file system in webassembly based on *File System API*.
+#![doc = include_str!("../README.md")]
 
-Still under development, many features missing.
-
-## Maximum file size
-Due to the reason that *File System API* uses *number*(f64 in Rust) to represent file size, the max file size allowed is 2^53. 
-This is because the IEEE 754 double-precision floating-point format (used in f64) has a 53-bit mantissa (52 explicit bits plus 1 implicit bit), which allows integers up to 253−1253−1 to be exactly represented without loss of precision. 
-Beyond this value, some integers may lose precision due to rounding when represented as f64, leading to potential inaccuracies during conversions back and forth.
-
-## Example: Read & Write
-```
-// provide functions like `read_to_string()` and `write_all()`
-use futures_lite::AsyncWriteExt;
-use futures_lite::AsyncReadExt;
-// writing
-{
-    let mut file = OpenOptions::new().write().create().open("testf").await.unwrap();
-    file.write_all("Hello, fs!".as_bytes()).await.unwrap();
-}
-// reading
-{
-    let mut file = OpenOptions::new().read().open("testf").await.unwrap();
-    let mut buf = String::new();
-    file.read_to_string(&mut buf).await.unwrap();
-}
-```
-## Example: Print the content of the fs recursively
-```
-use futures_lite::StreamExt;
-use wasm_bindgen::prelude::*;
-use log::info;
-use web_fs::{create_dir, create_dir_all, read_dir};
-
-#[wasm_bindgen(start)]
-pub async fn run() {
-    console_log::init_with_level(log::Level::Debug).unwrap();
-    std::panic::set_hook(Box::new(console_error_panic_hook::hook));
-
-    create_dir("test_dir1").await.unwrap();
-    create_dir_all("test_dir2/child").await.unwrap();
-
-    let mut fs_log = "fs:\n".to_owned();
-    print_dir_recursively("", 0, &mut fs_log).await;
-    info!("{}", fs_log);
-}
-
-async fn print_dir_recursively<P: AsRef<std::path::Path>>(path: P, level: usize, output: &mut impl std::fmt::Write) {
-    let mut dir = read_dir(path).await.unwrap();
-    while let Some(entry) = dir.next().await {
-        let entry = entry.unwrap();
-        writeln!(output, "{}{:?}", " ".repeat(level * 4), entry).unwrap();
-        if entry.file_type().await.unwrap().is_dir() {
-            Box::pin(print_dir_recursively(entry.path(), level + 1, output)).await;
-        }
-    }
-}
-```
-*/
 mod open_options;
 use arena::Arena;
 use js_sys::{ArrayBuffer, JsString, Object, Reflect};
 pub use open_options::OpenOptions;
 use read::ReadResult;
+use util::{get_value, get_value_as_f64, js_value_to_error, set_value, Task};
 use wasm_bindgen_futures::{stream::JsStream, JsFuture};
 mod arena;
+mod file;
 mod read;
 mod seek;
 mod write;
+pub use file::File;
+mod util;
 
 use std::{
     cell::RefCell,
     ffi::OsString,
-    future::Future,
     io::{Error, ErrorKind, Result},
     path::{Component, Path, PathBuf},
-    pin::Pin,
     rc::Rc,
-    task::{Context, Poll, Waker},
-    thread::LocalKey,
 };
 
-use futures_lite::{Stream, StreamExt};
+use futures_lite::{AsyncReadExt, AsyncWriteExt, Stream, StreamExt};
 use wasm_bindgen::prelude::*;
 use web_sys::{
     window, FileSystemDirectoryHandle, FileSystemFileHandle, FileSystemGetDirectoryOptions,
@@ -118,20 +61,6 @@ extern "C" {
     static HANDLE: JsString = "handle";
     #[wasm_bindgen(thread_local, static_string)]
     static CURSOR: JsString = "cursor";
-}
-
-fn get_value(target: &JsValue, key: &'static LocalKey<JsString>) -> JsValue {
-    let key = key.with(JsString::clone);
-    Reflect::get(target, &key).expect(&format!("{}, key: \"{}\"", GETTING_JS_FIELD_ERROR, key))
-}
-fn set_value(target: &JsValue, key: &'static LocalKey<JsString>, value: &JsValue) {
-    Reflect::set(target, &key.with(JsString::clone), value)
-        .expect("Setting js field error, this is an error of the crate.");
-}
-fn get_value_as_f64(target: &JsValue, key: &'static LocalKey<JsString>) -> f64 {
-    get_value(target, key)
-        .as_f64()
-        .expect("Converting js field to f64 error, this is an error of the crate.")
 }
 
 const GETTING_JS_FIELD_ERROR: &str = "Getting js field error, this is an error of the crate.";
@@ -309,23 +238,6 @@ impl Fs {
             worker,
         }
     }
-    fn open(
-        &self,
-        handle: FileSystemFileHandle,
-        options: u8,
-        inner: Rc<RefCell<Task<Result<File>>>>,
-    ) {
-        let index = self.inner.borrow_mut().opening_tasks.insert(inner);
-
-        let open = Object::new();
-        set_value(&open, &INDEX, &JsValue::from(index));
-        set_value(&open, &HANDLE, &handle);
-        set_value(&open, &OPTIONS, &JsValue::from(options));
-        let msg = Object::new();
-        set_value(&msg, &OPEN, &open);
-
-        self.worker.post_message(&msg).expect(POST_ERROR);
-    }
     fn drop_file(&self, fd: usize) {
         let msg = Object::new();
         let drop = Object::new();
@@ -337,75 +249,6 @@ impl Fs {
 }
 thread_local! {
     static FS: RefCell<Fs> = RefCell::new(Fs::new());
-}
-
-struct Task<T> {
-    waker: Option<Waker>,
-    result: Option<T>,
-}
-pub struct OpenFileFuture {
-    inner: Rc<RefCell<Task<Result<File>>>>,
-    append: bool,
-}
-impl Future for OpenFileFuture {
-    type Output = Result<File>;
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let mut inner = self.inner.borrow_mut();
-
-        if let Some(val) = inner.result.take() {
-            let result = val.map(|mut file| {
-                if self.append {
-                    file.cursor = file.size
-                }
-                file
-            });
-            return Poll::Ready(result);
-        }
-        inner.waker = Some(cx.waker().clone());
-        Poll::Pending
-    }
-}
-
-pub struct File {
-    fd: usize,
-    cursor: u64,
-    size: u64,
-    read_task: Option<Rc<RefCell<Task<Result<ReadResult>>>>>,
-    write_task: Option<Rc<RefCell<Task<Result<usize>>>>>,
-    flush_task: Option<Rc<RefCell<Task<Result<()>>>>>,
-    close_task: Option<Rc<RefCell<Task<Result<()>>>>>,
-}
-impl File {
-    fn new(fd: usize, size: u64) -> Self {
-        Self {
-            fd,
-            size,
-            cursor: 0,
-            read_task: None,
-            write_task: None,
-            flush_task: None,
-            close_task: None,
-        }
-    }
-    pub fn open<P: AsRef<Path>>(path: P) -> OpenFileFuture {
-        OpenOptions::new().read().open(path)
-    }
-    pub fn create<P: AsRef<Path>>(path: P) -> OpenFileFuture {
-        OpenOptions::new().create().write().open(path)
-    }
-}
-
-impl Drop for File {
-    fn drop(&mut self) {
-        FS.with_borrow(|fs| fs.drop_file(self.fd));
-    }
-}
-
-fn js_value_to_string(v: JsValue) -> String {
-    format!("{}", Object::from(v).to_string())
-}
-fn js_value_to_error(v: JsValue) -> Error {
-    Error::other(js_value_to_string(v))
 }
 
 async fn get_root() -> FileSystemDirectoryHandle {
@@ -623,5 +466,25 @@ pub async fn remove_dir_all<P: AsRef<Path>>(path: P) -> Result<()> {
         .await
         .map_err(|e| js_value_to_error(e))?;
 
+    Ok(())
+}
+
+pub async fn read<P: AsRef<Path>>(path: P) -> Result<Vec<u8>> {
+    let mut file = File::open(path).await?;
+    let mut buf = Vec::new();
+    file.read_to_end(&mut buf).await?;
+    Ok(buf)
+}
+
+pub async fn read_to_string<P: AsRef<Path>>(path: P) -> Result<String> {
+    let mut file = File::open(path).await?;
+    let mut buf = String::new();
+    file.read_to_string(&mut buf).await?;
+    Ok(buf)
+}
+
+pub async fn write<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, contents: C) -> Result<()> {
+    let mut file = File::create_new(path).await?;
+    file.write_all(contents.as_ref()).await.unwrap();
     Ok(())
 }

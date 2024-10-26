@@ -24,3 +24,6 @@ web-sys = { version = "*", features = [
 ] }
 js-sys = "*"
 futures-lite = "*"
+
+[dev-dependencies]
+wasm-bindgen-test = "*"

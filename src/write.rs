@@ -10,7 +10,9 @@ use futures_lite::AsyncWrite;
 use js_sys::{Object, Uint8Array};
 use wasm_bindgen::JsValue;
 
-use crate::{set_value, File, Fs, Task, BUF, CLOSE, CURSOR, FD, FLUSH, FS, INDEX, POST_ERROR, WRITE};
+use crate::{
+    set_value, File, Fs, Task, BUF, CLOSE, CURSOR, FD, FLUSH, FS, INDEX, POST_ERROR, WRITE,
+};
 
 impl Fs {
     fn write(&self, fd: usize, buf: &[u8], cursor: u64, task: Rc<RefCell<Task<Result<usize>>>>) {
@@ -22,7 +24,7 @@ impl Fs {
         set_value(&write_obj, &INDEX, &JsValue::from(index));
         set_value(&write_obj, &FD, &JsValue::from(fd));
         set_value(&write_obj, &BUF, &typed_array.buffer());
-        set_value(&write_obj, &CURSOR, &JsValue::from(cursor));
+        set_value(&write_obj, &CURSOR, &JsValue::from_f64(cursor as f64));
         let msg = Object::new();
         set_value(&msg, &WRITE, &write_obj);
 

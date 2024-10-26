@@ -1,8 +1,19 @@
-use std::{cell::RefCell, path::Path, rc::Rc};
+use std::{
+    cell::RefCell,
+    future::Future,
+    io::Result,
+    path::Path,
+    pin::Pin,
+    rc::Rc,
+    task::{Context, Poll},
+};
 
+use js_sys::Object;
+use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::spawn_local;
+use web_sys::FileSystemFileHandle;
 
-use crate::{get_file, OpenFileFuture, Task, FS};
+use crate::{get_file, set_value, File, Fs, Task, FS, HANDLE, INDEX, OPEN, OPTIONS, POST_ERROR};
 
 const APPEND: u8 = 0b0000_0001;
 const CREATE: u8 = 0b0000_0010;
@@ -12,32 +23,81 @@ const TRUNCATE: u8 = 0b0001_0000;
 const WRITE: u8 = 0b0010_0000;
 pub struct OpenOptions(u8);
 
+impl Fs {
+    fn open(
+        &self,
+        handle: FileSystemFileHandle,
+        options: u8,
+        inner: Rc<RefCell<Task<Result<File>>>>,
+    ) {
+        let index = self.inner.borrow_mut().opening_tasks.insert(inner);
+
+        let open = Object::new();
+        set_value(&open, &INDEX, &JsValue::from(index));
+        set_value(&open, &HANDLE, &handle);
+        set_value(&open, &OPTIONS, &JsValue::from(options));
+        let msg = Object::new();
+        set_value(&msg, &OPEN, &open);
+
+        self.worker.post_message(&msg).expect(POST_ERROR);
+    }
+}
+
+pub struct OpenFileFuture {
+    inner: Rc<RefCell<Task<Result<File>>>>,
+    append: bool,
+}
+impl Future for OpenFileFuture {
+    type Output = Result<File>;
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let mut inner = self.inner.borrow_mut();
+
+        if let Some(val) = inner.result.take() {
+            let result = val.map(|mut file| {
+                if self.append {
+                    file.cursor = file.size
+                }
+                file
+            });
+            return Poll::Ready(result);
+        }
+        inner.waker = Some(cx.waker().clone());
+        Poll::Pending
+    }
+}
 impl OpenOptions {
     pub fn new() -> Self {
         Self(0)
     }
-    pub fn append(&mut self) -> &mut OpenOptions {
-        self.0 |= APPEND;
+    fn set_bit(&mut self, bit: u8, value: bool) {
+        if value {
+            self.0 |= bit;
+        } else {
+            self.0 &= !bit;
+        }
+    }
+    pub fn append(&mut self, append: bool) -> &mut OpenOptions {
+        self.set_bit(APPEND, append);
         self
     }
-    pub fn create(&mut self) -> &mut OpenOptions {
-        self.0 |= CREATE;
+    pub fn create(&mut self, create: bool) -> &mut OpenOptions {
+        self.set_bit(CREATE, create);
         self
     }
-    pub fn create_new(&mut self) -> &mut OpenOptions {
-        self.0 |= CREATE_NEW;
+    pub fn create_new(&mut self, create_new: bool) -> &mut OpenOptions {
+        self.set_bit(CREATE_NEW, create_new);
         self
     }
-    pub fn read(&mut self) -> &mut OpenOptions {
-        self.0 |= READ;
+    pub fn read(&mut self, read: bool) -> &mut OpenOptions {
+        self.set_bit(READ, read);
         self
     }
-    pub fn truncate(&mut self) -> &mut OpenOptions {
-        self.0 |= TRUNCATE;
+    pub fn truncate(&mut self, truncate: bool) -> &mut OpenOptions {
+        self.set_bit(TRUNCATE, truncate);
         self
     }
-    pub fn write(&mut self) -> &mut OpenOptions {
-        self.0 |= WRITE;
+    pub fn write(&mut self, write: bool) -> &mut OpenOptions {
+        self.set_bit(WRITE, write);
         self
     }
     pub fn open<P: AsRef<Path>>(&self, path: P) -> OpenFileFuture {
@@ -52,7 +112,7 @@ impl OpenOptions {
 
         let options = self.0;
         spawn_local(async move {
-            let handle = get_file(path, options & CREATE > 0).await;
+            let handle = get_file(path, options & CREATE | options & CREATE_NEW > 0).await;
             match handle {
                 Ok(handle) => FS.with_borrow(|fs| fs.open(handle, options, inner_clone)),
                 Err(e) => {

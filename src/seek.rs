@@ -8,7 +8,7 @@ use futures_lite::AsyncSeek;
 
 use crate::File;
 
-const SEEK_ERROR: &str = "More cursor to negative value";
+const SEEK_ERROR: &str = "Move cursor to negative value";
 
 impl AsyncSeek for File {
     /// File System API dosen't fully expose the cursor of the file, so this is a simulated one and does not actually require async.

@@ -18,7 +18,13 @@ pub(crate) struct ReadResult {
 }
 
 impl Fs {
-    fn read(&self, fd: usize, size: usize, cursor: u64, task: Rc<RefCell<Task<Result<ReadResult>>>>) {
+    fn read(
+        &self,
+        fd: usize,
+        size: usize,
+        cursor: u64,
+        task: Rc<RefCell<Task<Result<ReadResult>>>>,
+    ) {
         let index = self.inner.borrow_mut().reading_tasks.insert(task);
 
         let msg = Object::new();
@@ -26,7 +32,7 @@ impl Fs {
         set_value(&read, &FD, &JsValue::from(fd));
         set_value(&read, &SIZE, &JsValue::from(size));
         set_value(&read, &INDEX, &JsValue::from(index));
-        set_value(&read, &CURSOR, &JsValue::from(cursor));
+        set_value(&read, &CURSOR, &JsValue::from_f64(cursor as f64));
         set_value(&msg, &READ, &read);
 
         self.worker.post_message(&msg).unwrap()
