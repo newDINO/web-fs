@@ -8,11 +8,10 @@ use std::{
 
 use futures_lite::AsyncWrite;
 use js_sys::{Object, Uint8Array};
-use serde_wasm_bindgen::to_value;
 use wasm_bindgen::JsValue;
 
 use crate::{
-    set_value, File, Fs, OutMsg, Task, BUF, FD, FS, INDEX, POST_ERROR, TO_VALUE_ERROR, WRITE,
+    set_value, File, Fs, Task, BUF, CLOSE, FD, FLUSH, FS, INDEX, POST_ERROR, WRITE
 };
 
 impl Fs {
@@ -32,14 +31,28 @@ impl Fs {
     }
     fn flush(&self, fd: usize, task: Rc<RefCell<Task<Result<()>>>>) {
         let index = self.inner.borrow_mut().flushing_tasks.insert(task);
+
+        let msg = Object::new();
+        let flust = Object::new();
+        set_value(&flust, &FD, &JsValue::from(fd));
+        set_value(&flust, &INDEX, &JsValue::from(index));
+        set_value(&msg, &FLUSH, &flust);
+
         self.worker
-            .post_message(&to_value(&OutMsg::Flush { fd, index }).expect(TO_VALUE_ERROR))
+            .post_message(&msg)
             .expect(POST_ERROR);
     }
     fn close(&self, fd: usize, task: Rc<RefCell<Task<Result<()>>>>) {
         let index = self.inner.borrow_mut().closing_tasks.insert(task);
+
+        let msg = Object::new();
+        let close = Object::new();
+        set_value(&close, &FD, &JsValue::from(fd));
+        set_value(&close, &INDEX, &JsValue::from(index));
+        set_value(&msg, &CLOSE, &close);
+
         self.worker
-            .post_message(&to_value(&OutMsg::Close { fd, index }).expect(TO_VALUE_ERROR))
+            .post_message(&msg)
             .expect(POST_ERROR);
     }
 }
@@ -65,6 +78,7 @@ impl AsyncWrite for File {
         };
         let mut inner = task.borrow_mut();
         if let Some(result) = inner.result.take() {
+            self.write_task = None;
             Poll::Ready(result)
         } else {
             Poll::Pending
@@ -86,6 +100,7 @@ impl AsyncWrite for File {
         };
         let mut inner = task.borrow_mut();
         if let Some(result) = inner.result.take() {
+            self.flush_task = None;
             Poll::Ready(result)
         } else {
             Poll::Pending
@@ -107,6 +122,7 @@ impl AsyncWrite for File {
         };
         let mut inner = task.borrow_mut();
         if let Some(result) = inner.result.take() {
+            self.close_task = None;
             Poll::Ready(result)
         } else {
             Poll::Pending

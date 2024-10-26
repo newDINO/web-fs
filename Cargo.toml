@@ -24,5 +24,3 @@ web-sys = { version = "*", features = [
 ] }
 js-sys = "*"
 futures-lite = "*"
-serde = { version = "*", features = ["derive"] }
-serde-wasm-bindgen = "*"

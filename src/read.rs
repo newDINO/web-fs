@@ -7,10 +7,10 @@ use std::{
 };
 
 use futures_lite::AsyncRead;
-use js_sys::{ArrayBuffer, Uint8Array};
-use serde_wasm_bindgen::to_value;
+use js_sys::{ArrayBuffer, Object, Uint8Array};
+use wasm_bindgen::JsValue;
 
-use crate::{File, Fs, OutMsg, Task, FS};
+use crate::{set_value, File, Fs, Task, FD, FS, INDEX, READ, SIZE};
 
 pub(crate) struct ReadResult {
     pub buf: ArrayBuffer,
@@ -21,9 +21,14 @@ impl Fs {
     fn read(&self, fd: usize, size: usize, task: Rc<RefCell<Task<Result<ReadResult>>>>) {
         let index = self.inner.borrow_mut().reading_tasks.insert(task);
 
-        self.worker
-            .post_message(&to_value(&OutMsg::Read { fd, size, index }).unwrap())
-            .unwrap();
+        let msg = Object::new();
+        let read = Object::new();
+        set_value(&read, &FD, &JsValue::from(fd));
+        set_value(&read, &SIZE, &JsValue::from(size));
+        set_value(&read, &INDEX, &JsValue::from(index));
+        set_value(&msg, &READ, &read);
+
+        self.worker.post_message(&msg).unwrap()
     }
 }
 

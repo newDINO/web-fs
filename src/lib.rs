@@ -75,41 +75,26 @@ use std::{
 };
 
 use futures_lite::{Stream, StreamExt};
-use serde::Serialize;
-use serde_wasm_bindgen::to_value;
 use wasm_bindgen::prelude::*;
 use web_sys::{
     window, FileSystemDirectoryHandle, FileSystemFileHandle, FileSystemGetDirectoryOptions, FileSystemGetFileOptions, FileSystemRemoveOptions, MessageEvent, Worker
 };
 
 
-// Doesn't include Write because write need to send some bytes which may be faster using ArrayBuffer without serialization.
-#[derive(Serialize)]
-enum OutMsg {
-    Read {
-        fd: usize,
-        size: usize,
-        index: usize,
-    },
-    Flush {
-        fd: usize,
-        index: usize,
-    },
-    Close {
-        fd: usize,
-        index: usize,
-    },
-    Drop {
-        fd: usize,
-    },
-}
-
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(thread_local, static_string)]
+    static OPEN: JsString = "Open";
+    #[wasm_bindgen(thread_local, static_string)]
+    static READ: JsString = "Read";
+    #[wasm_bindgen(thread_local, static_string)]
     static WRITE: JsString = "Write";
     #[wasm_bindgen(thread_local, static_string)]
-    static OPEN: JsString = "Open";
+    static CLOSE: JsString = "Close";
+    #[wasm_bindgen(thread_local, static_string)]
+    static FLUSH: JsString = "Flush";
+    #[wasm_bindgen(thread_local, static_string)]
+    static DROP: JsString = "Drop";
 
     #[wasm_bindgen(thread_local, static_string)]
     static INDEX: JsString = "index";
@@ -145,7 +130,6 @@ const GETTING_JS_FIELD_ERROR: &str = "Getting js field error, this is an error o
 const ARENA_REMOVE_ERROR: &str = "Removing from arena error, this is an error of the crate.";
 const DYN_INTO_ERROR: &str = "Converting js type failed, this is an error of the crate.";
 const POST_ERROR: &str = "Posting message to worker failed, this is an error of the crate";
-const TO_VALUE_ERROR: &str = "Serializing to js object failed, this is an error of the crate";
 
 struct FsInner {
     opening_tasks: Arena<Rc<RefCell<Task<Result<File>>>>>,
@@ -327,8 +311,13 @@ impl Fs {
             .expect(POST_ERROR);
     }
     fn drop_file(&self, fd: usize) {
+        let msg = Object::new();
+        let drop = Object::new();
+        set_value(&drop, &FD, &JsValue::from(fd));
+        set_value(&msg, &DROP, &drop);
+
         self.worker
-            .post_message(&to_value(&OutMsg::Drop { fd }).expect(TO_VALUE_ERROR))
+            .post_message(&msg)
             .expect(POST_ERROR);
     }
 }
