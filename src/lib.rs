@@ -2,7 +2,7 @@
 An asynchronous file system in webassembly based on *File System API*.
 
 Still under development, many features missing.
-## Example
+## Example: Read & Write
 ```
 // provide functions like `read_to_string()` and `write_all()`
 use futures_lite::AsyncWriteExt;
@@ -17,6 +17,37 @@ use futures_lite::AsyncReadExt;
     let mut file = OpenOptions::new().read().open("testf").await.unwrap();
     let mut buf = String::new();
     file.read_to_string(&mut buf).await.unwrap();
+}
+```
+## Example: Print the content of the fs recursively
+```
+use futures_lite::StreamExt;
+use wasm_bindgen::prelude::*;
+use log::info;
+use web_fs::{create_dir, create_dir_all, read_dir};
+
+#[wasm_bindgen(start)]
+pub async fn run() {
+    console_log::init_with_level(log::Level::Debug).unwrap();
+    std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+
+    create_dir("test_dir1").await.unwrap();
+    create_dir_all("test_dir2/child").await.unwrap();
+
+    let mut fs_log = "fs:\n".to_owned();
+    print_dir_recursively("", 0, &mut fs_log).await;
+    info!("{}", fs_log);
+}
+
+async fn print_dir_recursively<P: AsRef<std::path::Path>>(path: P, level: usize, output: &mut impl std::fmt::Write) {
+    let mut dir = read_dir(path).await.unwrap();
+    while let Some(entry) = dir.next().await {
+        let entry = entry.unwrap();
+        writeln!(output, "{}{:?}", " ".repeat(level * 4), entry).unwrap();
+        if entry.file_type().await.unwrap().is_dir() {
+            Box::pin(print_dir_recursively(entry.path(), level + 1, output)).await;
+        }
+    }
 }
 ```
 */
@@ -48,19 +79,13 @@ use serde::Serialize;
 use serde_wasm_bindgen::to_value;
 use wasm_bindgen::prelude::*;
 use web_sys::{
-    window, FileSystemDirectoryHandle, FileSystemFileHandle, FileSystemGetDirectoryOptions,
-    MessageEvent, Worker,
+    window, FileSystemDirectoryHandle, FileSystemFileHandle, FileSystemGetDirectoryOptions, FileSystemGetFileOptions, FileSystemRemoveOptions, MessageEvent, Worker
 };
 
 
 // Doesn't include Write because write need to send some bytes which may be faster using ArrayBuffer without serialization.
 #[derive(Serialize)]
-enum OutMsg<'a> {
-    Open {
-        options: u8,
-        path: &'a str,
-        index: usize,
-    },
+enum OutMsg {
     Read {
         fd: usize,
         size: usize,
@@ -82,6 +107,11 @@ enum OutMsg<'a> {
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(thread_local, static_string)]
+    static WRITE: JsString = "Write";
+    #[wasm_bindgen(thread_local, static_string)]
+    static OPEN: JsString = "Open";
+
+    #[wasm_bindgen(thread_local, static_string)]
     static INDEX: JsString = "index";
     #[wasm_bindgen(thread_local, static_string)]
     static FD: JsString = "fd";
@@ -90,9 +120,11 @@ extern "C" {
     #[wasm_bindgen(thread_local, static_string)]
     static SIZE: JsString = "size";
     #[wasm_bindgen(thread_local, static_string)]
-    static WRITE: JsString = "Write";
-    #[wasm_bindgen(thread_local, static_string)]
     static ERROR: JsString = "error";
+    #[wasm_bindgen(thread_local, static_string)]
+    static OPTIONS: JsString = "options";
+    #[wasm_bindgen(thread_local, static_string)]
+    static HANDLE: JsString = "handle";
 }
 
 fn get_value(target: &JsValue, key: &'static LocalKey<JsString>) -> JsValue {
@@ -280,17 +312,18 @@ impl Fs {
             worker,
         }
     }
-    fn open(&self, path: String, options: u8, inner: Rc<RefCell<Task<Result<File>>>>) {
+    fn open(&self, handle: FileSystemFileHandle, options: u8, inner: Rc<RefCell<Task<Result<File>>>>) {
         let index = self.inner.borrow_mut().opening_tasks.insert(inner);
+
+        let open = Object::new();
+        set_value(&open, &INDEX, &JsValue::from(index));
+        set_value(&open, &HANDLE, &handle);
+        set_value(&open, &OPTIONS, &JsValue::from(options));
+        let msg = Object::new();
+        set_value(&msg, &OPEN, &open);
+        
         self.worker
-            .post_message(
-                &to_value(&OutMsg::Open {
-                    options,
-                    path: &path,
-                    index,
-                })
-                .expect(TO_VALUE_ERROR),
-            )
+            .post_message(&msg)
             .expect(POST_ERROR);
     }
     fn drop_file(&self, fd: usize) {
@@ -344,11 +377,9 @@ impl File {
             close_task: None,
         }
     }
-    /// Currently only support opening at the base directory of the browser storage.
     pub fn open<P: AsRef<Path>>(path: P) -> OpenFileFuture {
         OpenOptions::new().read().open(path)
     }
-    /// Currently only support opening at the base directory of the browser storage.
     pub fn create<P: AsRef<Path>>(path: P) -> OpenFileFuture {
         OpenOptions::new().create().open(path)
     }
@@ -389,6 +420,21 @@ async fn child_dir(
         .await
         .map_err(|e| js_value_to_error(e))?
         .dyn_into::<FileSystemDirectoryHandle>()
+        .expect(DYN_INTO_ERROR);
+    Ok(result)
+}
+
+async fn child_file(
+    parent: &FileSystemDirectoryHandle,
+    name: &str,
+    create: bool,
+) -> Result<FileSystemFileHandle> {
+    let options = FileSystemGetFileOptions::new();
+    options.set_create(create);
+    let result = JsFuture::from(parent.get_file_handle_with_options(name, &options))
+        .await
+        .map_err(|e| js_value_to_error(e))?
+        .dyn_into::<FileSystemFileHandle>()
         .expect(DYN_INTO_ERROR);
     Ok(result)
 }
@@ -435,6 +481,19 @@ async fn get_dir<P: AsRef<Path>>(
         child_dir(&parent_dir, &name, create).await
     } else {
         Ok(parent_dir)
+    }
+}
+
+async fn get_file<P: AsRef<Path>>(
+    path: P,
+    create: bool,
+) -> Result<FileSystemFileHandle> {
+    let parent_dir = get_parent_dir(&path, false).await?;
+    if let Some(name) = path.as_ref().file_name() {
+        let name = name.to_string_lossy();
+        child_file(&parent_dir, &name, create).await
+    } else {
+        Err(Error::from(ErrorKind::AlreadyExists))
     }
 }
 
@@ -502,7 +561,7 @@ pub async fn read_dir<P: AsRef<Path>>(path: P) -> Result<impl Stream<Item = Resu
         let value = Reflect::get_u32(&entry, 1).expect(RESOLVE_ENTRY_ERROR);
 
         let mut path = path.as_ref().to_path_buf();
-        path.set_file_name(&key);
+        path.push(&key);
         let name = OsString::from(key);
         if let Some(_) = value.dyn_ref::<FileSystemFileHandle>() {
             Ok(DirEntry {
@@ -540,4 +599,22 @@ pub async fn remove_dir<P: AsRef<Path>>(path: P) -> Result<()> {
 /// Currently `remove_dir()` and `remove_file()` work the same.
 pub async fn remove_file<P: AsRef<Path>>(path: P) -> Result<()> {
     remove_dir(path).await
+}
+
+pub async fn remove_dir_all<P: AsRef<Path>>(path: P) -> Result<()> {
+    let parent_dir = get_parent_dir(&path, false).await?;
+    let name = path
+        .as_ref()
+        .file_name()
+        .ok_or(Error::from(ErrorKind::NotFound))?
+        .to_string_lossy();
+
+    let options = FileSystemRemoveOptions::new();
+    options.set_recursive(true);
+
+    JsFuture::from(parent_dir.remove_entry_with_options(&name, &options))
+        .await
+        .map_err(|e| js_value_to_error(e))?;
+
+    Ok(())
 }

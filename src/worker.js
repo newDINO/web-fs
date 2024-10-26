@@ -84,7 +84,7 @@ onmessage = async (e) => {
          * @typedef InOpenMsg
          * @type {object}
          * @property {number} options
-         * @property {string} path
+         * @property {FileSystemFileHandle} handle
          * @property {number} index
          */
         /**
@@ -92,7 +92,6 @@ onmessage = async (e) => {
          */
         let openMsg = msg.Open;
 
-        let create = (openMsg.options & CREATE) > 0;
         let openOptions;
         if((openMsg.options & WRITE) > 0) {
             openOptions = {
@@ -110,10 +109,7 @@ onmessage = async (e) => {
             }
         };
         try {
-            let root = await navigator.storage.getDirectory();
-            let draftHandle = await root.getFileHandle(openMsg.path, { create });
-    
-            let accessHandle = await draftHandle.createSyncAccessHandle(openOptions);
+            let accessHandle = await openMsg.handle.createSyncAccessHandle(openOptions);
             let fd = opened.insert(accessHandle);
             response[0].fd = fd;
         } catch (error) {

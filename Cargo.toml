@@ -10,16 +10,17 @@ crate-type = ["cdylib", "rlib"]
 wasm-bindgen = "*"
 wasm-bindgen-futures = { version = "*", features = ["futures-core-03-stream"] }
 web-sys = { version = "*", features = [
-    "StorageManager",
     "Window",
     "Navigator",
+    "Worker",
+    "MessageEvent",
+    "StorageManager",
     "FileSystemGetFileOptions",
     "FileSystemDirectoryHandle",
     "FileSystemFileHandle",
     "FileSystemWritableFileStream",
-    "Worker",
-    "MessageEvent",
     "FileSystemGetDirectoryOptions",
+    "FileSystemRemoveOptions",
 ] }
 js-sys = "*"
 futures-lite = "*"
