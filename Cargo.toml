@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "An async file system for browser wasm."
+repository = "https://github.com/newDINO/web-fs"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
