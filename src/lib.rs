@@ -2,6 +2,12 @@
 An asynchronous file system in webassembly based on *File System API*.
 
 Still under development, many features missing.
+
+## Maximum file size
+Due to the reason that *File System API* uses *number*(f64 in Rust) to represent file size, the max file size allowed is 2^53. 
+This is because the IEEE 754 double-precision floating-point format (used in f64) has a 53-bit mantissa (52 explicit bits plus 1 implicit bit), which allows integers up to 253−1253−1 to be exactly represented without loss of precision. 
+Beyond this value, some integers may lose precision due to rounding when represented as f64, leading to potential inaccuracies during conversions back and forth.
+
 ## Example: Read & Write
 ```
 // provide functions like `read_to_string()` and `write_all()`
@@ -51,7 +57,6 @@ async fn print_dir_recursively<P: AsRef<std::path::Path>>(path: P, level: usize,
 }
 ```
 */
-
 mod open_options;
 use arena::Arena;
 use js_sys::{ArrayBuffer, JsString, Object, Reflect};
@@ -60,6 +65,7 @@ use read::ReadResult;
 use wasm_bindgen_futures::{stream::JsStream, JsFuture};
 mod arena;
 mod read;
+mod seek;
 mod write;
 
 use std::{
@@ -77,9 +83,9 @@ use std::{
 use futures_lite::{Stream, StreamExt};
 use wasm_bindgen::prelude::*;
 use web_sys::{
-    window, FileSystemDirectoryHandle, FileSystemFileHandle, FileSystemGetDirectoryOptions, FileSystemGetFileOptions, FileSystemRemoveOptions, MessageEvent, Worker
+    window, FileSystemDirectoryHandle, FileSystemFileHandle, FileSystemGetDirectoryOptions,
+    FileSystemGetFileOptions, FileSystemRemoveOptions, MessageEvent, Worker,
 };
-
 
 #[wasm_bindgen]
 extern "C" {
@@ -110,6 +116,8 @@ extern "C" {
     static OPTIONS: JsString = "options";
     #[wasm_bindgen(thread_local, static_string)]
     static HANDLE: JsString = "handle";
+    #[wasm_bindgen(thread_local, static_string)]
+    static CURSOR: JsString = "cursor";
 }
 
 fn get_value(target: &JsValue, key: &'static LocalKey<JsString>) -> JsValue {
@@ -191,7 +199,8 @@ impl Fs {
                         state.result = Some(Err(Error::other(error)));
                     } else {
                         let fd = get_value_as_f64(&open_msg, &FD) as usize;
-                        state.result = Some(Ok(File::from_fd(fd)));
+                        let size = get_value_as_f64(&open_msg, &SIZE) as u64;
+                        state.result = Some(Ok(File::new(fd, size)));
                     }
                     if let Some(waker) = state.waker.take() {
                         waker.wake();
@@ -300,7 +309,12 @@ impl Fs {
             worker,
         }
     }
-    fn open(&self, handle: FileSystemFileHandle, options: u8, inner: Rc<RefCell<Task<Result<File>>>>) {
+    fn open(
+        &self,
+        handle: FileSystemFileHandle,
+        options: u8,
+        inner: Rc<RefCell<Task<Result<File>>>>,
+    ) {
         let index = self.inner.borrow_mut().opening_tasks.insert(inner);
 
         let open = Object::new();
@@ -309,10 +323,8 @@ impl Fs {
         set_value(&open, &OPTIONS, &JsValue::from(options));
         let msg = Object::new();
         set_value(&msg, &OPEN, &open);
-        
-        self.worker
-            .post_message(&msg)
-            .expect(POST_ERROR);
+
+        self.worker.post_message(&msg).expect(POST_ERROR);
     }
     fn drop_file(&self, fd: usize) {
         let msg = Object::new();
@@ -320,9 +332,7 @@ impl Fs {
         set_value(&drop, &FD, &JsValue::from(fd));
         set_value(&msg, &DROP, &drop);
 
-        self.worker
-            .post_message(&msg)
-            .expect(POST_ERROR);
+        self.worker.post_message(&msg).expect(POST_ERROR);
     }
 }
 thread_local! {
@@ -335,19 +345,22 @@ struct Task<T> {
 }
 pub struct OpenFileFuture {
     inner: Rc<RefCell<Task<Result<File>>>>,
+    append: bool,
 }
 impl Future for OpenFileFuture {
     type Output = Result<File>;
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut inner = self.inner.borrow_mut();
 
-        // If our value has come in then we return it...
         if let Some(val) = inner.result.take() {
-            return Poll::Ready(val);
+            let result = val.map(|mut file| {
+                if self.append {
+                    file.cursor = file.size
+                }
+                file
+            });
+            return Poll::Ready(result);
         }
-
-        // ... otherwise we arrange ourselves to get woken up once the value
-        // does come in
         inner.waker = Some(cx.waker().clone());
         Poll::Pending
     }
@@ -355,15 +368,19 @@ impl Future for OpenFileFuture {
 
 pub struct File {
     fd: usize,
+    cursor: u64,
+    size: u64,
     read_task: Option<Rc<RefCell<Task<Result<ReadResult>>>>>,
     write_task: Option<Rc<RefCell<Task<Result<usize>>>>>,
     flush_task: Option<Rc<RefCell<Task<Result<()>>>>>,
     close_task: Option<Rc<RefCell<Task<Result<()>>>>>,
 }
 impl File {
-    fn from_fd(fd: usize) -> Self {
+    fn new(fd: usize, size: u64) -> Self {
         Self {
             fd,
+            size,
+            cursor: 0,
             read_task: None,
             write_task: None,
             flush_task: None,
@@ -374,7 +391,7 @@ impl File {
         OpenOptions::new().read().open(path)
     }
     pub fn create<P: AsRef<Path>>(path: P) -> OpenFileFuture {
-        OpenOptions::new().create().open(path)
+        OpenOptions::new().create().write().open(path)
     }
 }
 
@@ -477,10 +494,7 @@ async fn get_dir<P: AsRef<Path>>(
     }
 }
 
-async fn get_file<P: AsRef<Path>>(
-    path: P,
-    create: bool,
-) -> Result<FileSystemFileHandle> {
+async fn get_file<P: AsRef<Path>>(path: P, create: bool) -> Result<FileSystemFileHandle> {
     let parent_dir = get_parent_dir(&path, false).await?;
     if let Some(name) = path.as_ref().file_name() {
         let name = name.to_string_lossy();
@@ -581,11 +595,11 @@ pub async fn remove_dir<P: AsRef<Path>>(path: P) -> Result<()> {
         .file_name()
         .ok_or(Error::from(ErrorKind::NotFound))?
         .to_string_lossy();
-    
+
     JsFuture::from(parent_dir.remove_entry(&name))
         .await
         .map_err(|e| js_value_to_error(e))?;
-    
+
     Ok(())
 }
 

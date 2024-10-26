@@ -111,7 +111,14 @@ onmessage = async (e) => {
         try {
             let accessHandle = await openMsg.handle.createSyncAccessHandle(openOptions);
             let fd = opened.insert(accessHandle);
+
+            if(openMsg.options & TRUNCATE) {
+                accessHandle.truncate(0);
+            } 
+
+            let size = accessHandle.getSize();
             response[0].fd = fd;
+            response[0].size = size;
         } catch (error) {
             response.error = error.toString() + JSON.stringify(openMsg);
         } finally {
@@ -137,6 +144,7 @@ onmessage = async (e) => {
          * @property {number} fd
          * @property {number} size
          * @property {number} index
+         * @property {BigInt} cursor
          */
         /**
          * @type {InReadMsg}
@@ -151,7 +159,7 @@ onmessage = async (e) => {
         try {
             let accessHandle = opened.get(readMsg.fd);
             let buffer = new ArrayBuffer(readMsg.size);
-            let size = accessHandle.read(buffer);
+            let size = accessHandle.read(buffer, { at: Number(readMsg.cursor) });
             response[1].buf = buffer;
             response[1].size = size;
         } catch (error) {
@@ -167,6 +175,7 @@ onmessage = async (e) => {
          * @property {number} fd
          * @property {ArrayBuffer} buf
          * @property {number} index
+         * @property {BigInt} cursor
          */
         /**
          * @type {InWriteMsg}
@@ -180,7 +189,7 @@ onmessage = async (e) => {
         };
         try {
             let accessHandle = opened.get(writeMsg.fd);
-            let size = accessHandle.write(writeMsg.buf);
+            let size = accessHandle.write(writeMsg.buf, { at: Number(writeMsg.cursor) });
             response[2].size = size;
         } catch (error) {
             response.error = error.toString();

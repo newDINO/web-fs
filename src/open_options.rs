@@ -64,6 +64,9 @@ impl OpenOptions {
                 }
             }
         });
-        OpenFileFuture { inner }
+        OpenFileFuture {
+            inner,
+            append: self.0 & APPEND > 0,
+        }
     }
 }

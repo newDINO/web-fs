@@ -10,7 +10,7 @@ use futures_lite::AsyncRead;
 use js_sys::{ArrayBuffer, Object, Uint8Array};
 use wasm_bindgen::JsValue;
 
-use crate::{set_value, File, Fs, Task, FD, FS, INDEX, READ, SIZE};
+use crate::{set_value, File, Fs, Task, CURSOR, FD, FS, INDEX, READ, SIZE};
 
 pub(crate) struct ReadResult {
     pub buf: ArrayBuffer,
@@ -18,7 +18,7 @@ pub(crate) struct ReadResult {
 }
 
 impl Fs {
-    fn read(&self, fd: usize, size: usize, task: Rc<RefCell<Task<Result<ReadResult>>>>) {
+    fn read(&self, fd: usize, size: usize, cursor: u64, task: Rc<RefCell<Task<Result<ReadResult>>>>) {
         let index = self.inner.borrow_mut().reading_tasks.insert(task);
 
         let msg = Object::new();
@@ -26,6 +26,7 @@ impl Fs {
         set_value(&read, &FD, &JsValue::from(fd));
         set_value(&read, &SIZE, &JsValue::from(size));
         set_value(&read, &INDEX, &JsValue::from(index));
+        set_value(&read, &CURSOR, &JsValue::from(cursor));
         set_value(&msg, &READ, &read);
 
         self.worker.post_message(&msg).unwrap()
@@ -46,7 +47,7 @@ impl AsyncRead for File {
                 result: None,
             }));
             let task_clone = task.clone();
-            FS.with_borrow(|fs| fs.read(self.fd, buf.len(), task_clone));
+            FS.with_borrow(|fs| fs.read(self.fd, buf.len(), self.cursor, task_clone));
 
             self.read_task = Some(task.clone());
             task
@@ -59,6 +60,7 @@ impl AsyncRead for File {
                 .slice(0, result.size as u32)
                 .copy_to(&mut buf[..result.size]);
             self.read_task = None;
+            self.cursor += result.size as u64;
             Poll::Ready(Ok(result.size))
         } else {
             Poll::Pending
