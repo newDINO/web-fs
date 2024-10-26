@@ -1,6 +1,7 @@
-An asynchronous file system in webassembly based on *File System API*.
-
-Still under development, many features missing.
+An asynchronous file system in webassembly based on *File System API*.  
+Aim to be compatible with async-fs.
+Still under development, many features missing.  
+File an issue if you find anything wrong.
 
 ## Maximum file size
 Due to the reason that *File System API* uses *number*(f64 in Rust) to represent file size, the max file size allowed is 2<sup>53</sup>.
