@@ -8,7 +8,7 @@ wasm_bindgen_test_configure!(run_in_browser);
 async fn test() {
     use futures_lite::AsyncWriteExt;
     use futures_lite::AsyncReadExt;
-    use web_fs::{File, read_to_string, write, OpenOptions};
+    use web_fs::{File, read_to_string, write, OpenOptions, copy};
     // write
     {
         let mut file = File::create("testf").await.unwrap();
@@ -35,5 +35,10 @@ async fn test() {
         write("testf", "Hello, FS!").await.unwrap();
         let buf = read_to_string("testf").await.unwrap();
         assert_eq!("Hello, FS!", buf);
+    }
+    // copy
+    {
+        copy("testf", "testf2").await.unwrap();
+        assert_eq!("Hello, FS!", read_to_string("testf2").await.unwrap());
     }
 }

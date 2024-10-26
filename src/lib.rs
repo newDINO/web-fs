@@ -488,3 +488,19 @@ pub async fn write<P: AsRef<Path>, C: AsRef<[u8]>>(path: P, contents: C) -> Resu
     file.write_all(contents.as_ref()).await.unwrap();
     Ok(())
 }
+
+pub async fn copy<P: AsRef<Path>, Q: AsRef<Path>>(from: P, to: Q) -> Result<u64> {
+    let mut src = File::open(from).await?;
+    let mut dst = File::create_new(to).await?;
+    let buf_size = src.size.min(1 << 6) as usize;
+    let mut buf = vec![0; buf_size];
+    loop {
+        let read_size = src.read(&mut buf).await?;
+        if read_size == 0 {
+            break;
+        }
+        dst.write_all(&buf[0..read_size]).await?;
+        buf[0..read_size].fill(0);
+    }
+    Ok(src.size)
+}
