@@ -76,9 +76,7 @@ const WRITE = 0b0010_0000;
 let opened = new Arena();
 
 onmessage = async (e) => {
-    console.log("Message received");
     let msg = e.data;
-    console.log(msg);
     if(msg.Open != undefined) {
         /**
          * @typedef InOpenMsg
@@ -122,7 +120,6 @@ onmessage = async (e) => {
         } catch (error) {
             response.error = error.toString() + JSON.stringify(openMsg);
         } finally {
-            console.log(response);
             postMessage(response);
         }
     } else if(msg.Drop != undefined) {
@@ -158,14 +155,13 @@ onmessage = async (e) => {
         };
         try {
             let accessHandle = opened.get(readMsg.fd);
-            let buffer = new ArrayBuffer(readMsg.size);
+            let buffer = new Uint8Array(readMsg.size);
             let size = accessHandle.read(buffer, { at: readMsg.cursor });
-            response[1].buf = buffer;
+            response[1].buf = buffer.buffer;
             response[1].size = size;
         } catch (error) {
             response.error = error.toString();
         } finally {
-            console.log(response);
             postMessage(response);
         }
     } else if(msg.Write != undefined) {
@@ -189,12 +185,12 @@ onmessage = async (e) => {
         };
         try {
             let accessHandle = opened.get(writeMsg.fd);
-            let size = accessHandle.write(writeMsg.buf, { at: writeMsg.cursor });
+            let dataView = new DataView(writeMsg.buf);
+            let size = accessHandle.write(dataView, { at: writeMsg.cursor });
             response[2].size = size;
         } catch (error) {
             response.error = error.toString();
         } finally {
-            console.log(response);
             postMessage(response);
         }
     } else if(msg.Flush != undefined) {
@@ -220,7 +216,6 @@ onmessage = async (e) => {
         } catch (error) {
             response.error = error.toString();
         } finally {
-            console.log(response);
             postMessage(response);
         }
     } else if(msg.Close != undefined) {
@@ -246,7 +241,6 @@ onmessage = async (e) => {
         } catch (error) {
             response.error = error.toString();
         } finally {
-            console.log(response);
             postMessage(response);
         }
     } else if(msg.Truncate != undefined) {
@@ -273,7 +267,6 @@ onmessage = async (e) => {
         } catch (error) {
             response.error = error.toString();
         } finally {
-            console.log(response);
             postMessage(response);
         }
     }
