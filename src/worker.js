@@ -112,7 +112,7 @@ onmessage = async (e) => {
             let accessHandle = await openMsg.handle.createSyncAccessHandle(openOptions);
             let fd = opened.insert(accessHandle);
 
-            if(openMsg.options & TRUNCATE | openMsg.options & CREATE_NEW) {
+            if(openMsg.options & TRUNCATE | openMsg.options & CREATE_NEW | openMsg.options & CREATE) {
                 accessHandle.truncate(0);
             } 
 
@@ -243,6 +243,33 @@ onmessage = async (e) => {
         try {
             let accessHandle = opened.get(closeMsg.fd);
             accessHandle.close();
+        } catch (error) {
+            response.error = error.toString();
+        } finally {
+            console.log(response);
+            postMessage(response);
+        }
+    } else if(msg.Truncate != undefined) {
+        /**
+         * @typedef InTruncateMsg
+         * @type {object}
+         * @property {number} fd
+         * @property {number} size
+         * @property {number} index
+         */
+        /**
+         * @type {InTruncateMsg}
+         */
+        let truncateMsg = msg.Truncate;
+
+        let response = {
+            5: {
+                index: truncateMsg.index
+            }
+        }
+        try {
+            let accessHandle = opened.get(truncateMsg.fd);
+            accessHandle.truncate(truncateMsg.size);
         } catch (error) {
             response.error = error.toString();
         } finally {

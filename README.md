@@ -1,34 +1,33 @@
-An asynchronous file system in webassembly based on *File System API*.  
-Aim to be compatible with async-fs.
-Still under development, many features missing.  
-File an issue if you find anything wrong.
+An asynchronous file system in webassembly based on [File System API](https://developer.mozilla.org/en-US/docs/Web/API/File_System_API), 
+using a [FileSystemSyncAccessHandle](https://developer.mozilla.org/en-US/docs/Web/API/FileSystemSyncAccessHandle) running in a web worker.
+
+Aim to be compatible with [`async-fs`]. 
+But due to the restrictions of *File System API*, the API of this crate is not perfectly aligned with that of [`async-fs`].
+
+[`async-fs`]: https://docs.rs/async-fs
+
+File an issue if you find anything wrong. Pull requests are also welcomed.
 
 ## Maximum file size
-Due to the reason that *File System API* uses *number*(f64 in Rust) to represent file size, the max file size allowed is 2<sup>53</sup>.
+Due to the reason that *File System API* uses *number*(f64 in Rust) to represent file size, theoratically the max file size allowed is 2<sup>53</sup>, 
+or 9_007_199_254_740_992 or 8EB or 8192TB which is larger than the single file size limit of many file systems. 
+So no need to worry about this.
 
-This is because the IEEE 754 double-precision floating-point format (used in f64) has a 53-bit mantissa (52 explicit bits plus 1 implicit bit),
-which allows integers up to 2<sup>53</sup>-1 to be exactly represented without loss of precision.
-Beyond this value, some integers may lose precision due to rounding when represented as f64, leading to potential inaccuracies during conversions back and forth.
+Note that wasm32 only support at most 4GB memory, so you can't use read_to_end() for files larger than that.
 
-But the test below demonstrates that 2<sup>53</sup> can also be converted between f64 and u64 correctly. So the maximum file size is actually 2<sup>53</sup>.
-```rust
-let a = 2f64.powi(53);
-let b = a + 1.0;
-let c = a - 1.0;
-info!("{}, {}, {}", a as u64, b as u64, c as u64);
-// 9007199254740992, 9007199254740992, 9007199254740991
-let a = 2u64.pow(53);
-let b = a + 1;
-let c = a - 1;
-info!("{}, {}, {}", a as f64, b as f64, c as f64);
-// 9007199254740992, 9007199254740992, 9007199254740991
-```
 
 ## Example: Read & Write
 ```rust
+// provides functionalities like write_all() and read_to_string()
 use futures_lite::AsyncWriteExt;
 use futures_lite::AsyncReadExt;
+
+// Use web_fs in wasm and async_fs on native.
+#[cfg(target_arch = "wasm32")]
 use web_fs::{File, read_to_string, write, OpenOptions};
+#[cfg(not(target_arch = "wasm32"))]
+use async_fs::{File, read_to_string, write, OpenOptions};
+
 // write
 {
     let mut file = File::create("testf").await.unwrap();

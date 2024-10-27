@@ -14,13 +14,11 @@ mod seek;
 mod write;
 pub use file::File;
 mod util;
+mod metadata;
+pub use metadata::*;
 
 use std::{
-    cell::RefCell,
-    ffi::OsString,
-    io::{Error, ErrorKind, Result},
-    path::{Component, Path, PathBuf},
-    rc::Rc,
+    cell::RefCell, ffi::OsString, io::{Error, ErrorKind, Result}, path::{Component, Path, PathBuf}, rc::Rc
 };
 
 use futures_lite::{AsyncReadExt, AsyncWriteExt, Stream, StreamExt};
@@ -42,6 +40,8 @@ extern "C" {
     static CLOSE: JsString = "Close";
     #[wasm_bindgen(thread_local, static_string)]
     static FLUSH: JsString = "Flush";
+    #[wasm_bindgen(thread_local, static_string)]
+    static TRUNCATE: JsString = "Truncate";
     #[wasm_bindgen(thread_local, static_string)]
     static DROP: JsString = "Drop";
 
@@ -74,6 +74,7 @@ struct FsInner {
     writing_tasks: Arena<Rc<RefCell<Task<Result<usize>>>>>,
     flushing_tasks: Arena<Rc<RefCell<Task<Result<()>>>>>,
     closing_tasks: Arena<Rc<RefCell<Task<Result<()>>>>>,
+    truncating_tasks: Arena<Rc<RefCell<Task<Result<()>>>>>,
 }
 struct Fs {
     inner: Rc<RefCell<FsInner>>,
@@ -91,6 +92,7 @@ impl Fs {
             writing_tasks: Arena::new(),
             flushing_tasks: Arena::new(),
             closing_tasks: Arena::new(),
+            truncating_tasks: Arena::new(),
         };
         let inner = Rc::new(RefCell::new(inner));
         let inner_clone = inner.clone();
@@ -101,6 +103,7 @@ impl Fs {
             Write,
             Flush,
             Close,
+            Truncate,
         }
         let on_message: Closure<dyn FnMut(MessageEvent)> =
             Closure::new(move |msg: MessageEvent| {
@@ -225,6 +228,28 @@ impl Fs {
                         state.result = Some(Ok(()))
                     }
 
+                    if let Some(waker) = state.waker.take() {
+                        waker.wake();
+                    }
+                    return;
+                }
+                let truncate_msg = Reflect::get_u32(&received, InMsgType::Truncate as u32)
+                    .expect(GETTING_JS_FIELD_ERROR);
+                if !truncate_msg.is_undefined() {
+                    let index = get_value_as_f64(&truncate_msg, &INDEX) as usize;
+                    let task = inner_clone
+                        .borrow_mut()
+                        .truncating_tasks
+                        .remove(index)
+                        .expect(ARENA_REMOVE_ERROR);
+                    let mut state = task.borrow_mut();
+
+                    if let Some(error) = error {
+                        state.result = Some(Err(Error::other(error)));
+                    } else {
+                        state.result = Some(Ok(()))
+                    }
+                    
                     if let Some(waker) = state.waker.take() {
                         waker.wake();
                     }

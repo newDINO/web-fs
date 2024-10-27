@@ -1,0 +1,4 @@
+1. Custom AsyncReadExt for better performance.
+2. More documentation.
+3. Behavior align with std::fs and async::fs.
+4. Performance test and stability test.

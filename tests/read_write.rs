@@ -41,4 +41,12 @@ async fn test() {
         copy("testf", "testf2").await.unwrap();
         assert_eq!("Hello, FS!", read_to_string("testf2").await.unwrap());
     }
+    // truncate
+    {
+        let mut file = OpenOptions::new().write(true).read(true).open("testf").await.unwrap();
+        file.set_len(5).await.unwrap();
+        let mut buf = String::new();
+        file.read_to_string(&mut buf).await.unwrap();
+        assert_eq!("Hello", buf);
+    }
 }
