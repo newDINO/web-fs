@@ -13,54 +13,30 @@ mod read;
 mod seek;
 mod write;
 pub use file::File;
-mod util;
 mod metadata;
+mod util;
 pub use metadata::*;
 
 use std::{
-    cell::RefCell, ffi::OsString, io::{Error, ErrorKind, Result}, path::{Component, Path, PathBuf}, rc::Rc
+    cell::RefCell,
+    ffi::OsString,
+    io::{Error, ErrorKind, Result},
+    path::{Component, Path, PathBuf},
+    rc::Rc,
 };
 
 use futures_lite::{AsyncReadExt, AsyncWriteExt, Stream, StreamExt};
 use wasm_bindgen::prelude::*;
 use web_sys::{
     window, FileSystemDirectoryHandle, FileSystemFileHandle, FileSystemGetDirectoryOptions,
-    FileSystemGetFileOptions, FileSystemRemoveOptions, MessageEvent, Worker,
+    FileSystemGetFileOptions, FileSystemRemoveOptions, MessageEvent, StorageManager, Worker,
 };
+
+include!("./c_static_str.rs");
 
 #[wasm_bindgen]
 extern "C" {
-    #[wasm_bindgen(thread_local, static_string)]
-    static OPEN: JsString = "Open";
-    #[wasm_bindgen(thread_local, static_string)]
-    static READ: JsString = "Read";
-    #[wasm_bindgen(thread_local, static_string)]
-    static WRITE: JsString = "Write";
-    #[wasm_bindgen(thread_local, static_string)]
-    static CLOSE: JsString = "Close";
-    #[wasm_bindgen(thread_local, static_string)]
-    static FLUSH: JsString = "Flush";
-    #[wasm_bindgen(thread_local, static_string)]
-    static TRUNCATE: JsString = "Truncate";
-    #[wasm_bindgen(thread_local, static_string)]
-    static DROP: JsString = "Drop";
-
-    #[wasm_bindgen(thread_local, static_string)]
-    static INDEX: JsString = "index";
-    #[wasm_bindgen(thread_local, static_string)]
-    static FD: JsString = "fd";
-    #[wasm_bindgen(thread_local, static_string)]
-    static BUF: JsString = "buf";
-    #[wasm_bindgen(thread_local, static_string)]
-    static SIZE: JsString = "size";
-    #[wasm_bindgen(thread_local, static_string)]
-    static ERROR: JsString = "error";
-    #[wasm_bindgen(thread_local, static_string)]
-    static OPTIONS: JsString = "options";
-    #[wasm_bindgen(thread_local, static_string)]
-    static HANDLE: JsString = "handle";
-    #[wasm_bindgen(thread_local, static_string)]
-    static CURSOR: JsString = "cursor";
+    fn get_storage_fallback() -> StorageManager;
 }
 
 const GETTING_JS_FIELD_ERROR: &str = "Getting js field error, this is an error of the crate.";
@@ -249,7 +225,7 @@ impl Fs {
                     } else {
                         state.result = Some(Ok(()))
                     }
-                    
+
                     if let Some(waker) = state.waker.take() {
                         waker.wake();
                     }
@@ -277,9 +253,12 @@ thread_local! {
 }
 
 async fn get_root() -> FileSystemDirectoryHandle {
-    let window = window().unwrap();
-    let navigator = window.navigator();
-    let storage = navigator.storage();
+    let storage = if let Some(window) = window() {
+        let navigator = window.navigator();
+        navigator.storage()
+    } else {
+        get_storage_fallback()
+    };
     JsFuture::from(storage.get_directory())
         .await
         .expect("Getting root directory failed")
