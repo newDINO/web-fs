@@ -30,14 +30,10 @@ use wasm_bindgen::prelude::*;
 use web_sys::{
     window, FileSystemDirectoryHandle, FileSystemFileHandle, FileSystemGetDirectoryOptions,
     FileSystemGetFileOptions, FileSystemRemoveOptions, MessageEvent, StorageManager, Worker,
+    WorkerGlobalScope,
 };
 
 include!("./c_static_str.rs");
-
-#[wasm_bindgen]
-extern "C" {
-    fn get_storage_fallback() -> StorageManager;
-}
 
 const GETTING_JS_FIELD_ERROR: &str = "Getting js field error, this is an error of the crate.";
 const ARENA_REMOVE_ERROR: &str = "Removing from arena error, this is an error of the crate.";
@@ -256,8 +252,11 @@ async fn get_root() -> FileSystemDirectoryHandle {
     let storage = if let Some(window) = window() {
         let navigator = window.navigator();
         navigator.storage()
+    } else if js_sys::global().is_instance_of::<WorkerGlobalScope>() {
+        let global = js_sys::global().unchecked_into::<WorkerGlobalScope>();
+        global.navigator().storage()
     } else {
-        get_storage_fallback()
+        panic!("unable to access storage");
     };
     JsFuture::from(storage.get_directory())
         .await
