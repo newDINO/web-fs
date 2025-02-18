@@ -1,16 +1,20 @@
+// This only runs in the browser
+#![cfg(target_arch = "wasm32")]
+
 use futures_lite::{AsyncReadExt, AsyncWriteExt};
 use wasm_bindgen_test::*;
 
 use wasm_bindgen_test::wasm_bindgen_test_configure;
 
 wasm_bindgen_test_configure!(run_in_browser);
+wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
 use web_fs::*;
 
 #[wasm_bindgen_test]
 async fn read_write() {
-    use futures_lite::AsyncWriteExt;
     use futures_lite::AsyncReadExt;
+    use futures_lite::AsyncWriteExt;
     // write
     {
         let mut file = File::create("testf").await.unwrap();
@@ -25,7 +29,12 @@ async fn read_write() {
     }
     // append
     {
-        let mut file = OpenOptions::new().write(true).append(true).open("testf").await.unwrap();
+        let mut file = OpenOptions::new()
+            .write(true)
+            .append(true)
+            .open("testf")
+            .await
+            .unwrap();
         file.write_all(" world!".as_bytes()).await.unwrap();
     }
     {
@@ -45,7 +54,12 @@ async fn read_write() {
     }
     // truncate
     {
-        let mut file = OpenOptions::new().write(true).read(true).open("testf").await.unwrap();
+        let mut file = OpenOptions::new()
+            .write(true)
+            .read(true)
+            .open("testf")
+            .await
+            .unwrap();
         file.set_len(5).await.unwrap();
         let mut buf = String::new();
         file.read_to_string(&mut buf).await.unwrap();

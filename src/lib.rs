@@ -13,55 +13,26 @@ mod read;
 mod seek;
 mod write;
 pub use file::File;
-mod util;
 mod metadata;
+mod util;
 pub use metadata::*;
 
 use std::{
-    cell::RefCell, ffi::OsString, io::{Error, ErrorKind, Result}, path::{Component, Path, PathBuf}, rc::Rc
+    cell::RefCell,
+    ffi::OsString,
+    io::{Error, ErrorKind, Result},
+    path::{Component, Path, PathBuf},
+    rc::Rc,
 };
 
 use futures_lite::{AsyncReadExt, AsyncWriteExt, Stream, StreamExt};
 use wasm_bindgen::prelude::*;
 use web_sys::{
     window, FileSystemDirectoryHandle, FileSystemFileHandle, FileSystemGetDirectoryOptions,
-    FileSystemGetFileOptions, FileSystemRemoveOptions, MessageEvent, Worker,
+    FileSystemGetFileOptions, FileSystemRemoveOptions, MessageEvent, Worker, WorkerGlobalScope,
 };
 
-#[wasm_bindgen]
-extern "C" {
-    #[wasm_bindgen(thread_local, static_string)]
-    static OPEN: JsString = "Open";
-    #[wasm_bindgen(thread_local, static_string)]
-    static READ: JsString = "Read";
-    #[wasm_bindgen(thread_local, static_string)]
-    static WRITE: JsString = "Write";
-    #[wasm_bindgen(thread_local, static_string)]
-    static CLOSE: JsString = "Close";
-    #[wasm_bindgen(thread_local, static_string)]
-    static FLUSH: JsString = "Flush";
-    #[wasm_bindgen(thread_local, static_string)]
-    static TRUNCATE: JsString = "Truncate";
-    #[wasm_bindgen(thread_local, static_string)]
-    static DROP: JsString = "Drop";
-
-    #[wasm_bindgen(thread_local, static_string)]
-    static INDEX: JsString = "index";
-    #[wasm_bindgen(thread_local, static_string)]
-    static FD: JsString = "fd";
-    #[wasm_bindgen(thread_local, static_string)]
-    static BUF: JsString = "buf";
-    #[wasm_bindgen(thread_local, static_string)]
-    static SIZE: JsString = "size";
-    #[wasm_bindgen(thread_local, static_string)]
-    static ERROR: JsString = "error";
-    #[wasm_bindgen(thread_local, static_string)]
-    static OPTIONS: JsString = "options";
-    #[wasm_bindgen(thread_local, static_string)]
-    static HANDLE: JsString = "handle";
-    #[wasm_bindgen(thread_local, static_string)]
-    static CURSOR: JsString = "cursor";
-}
+include!("./c_static_str.rs");
 
 const GETTING_JS_FIELD_ERROR: &str = "Getting js field error, this is an error of the crate.";
 const ARENA_REMOVE_ERROR: &str = "Removing from arena error, this is an error of the crate.";
@@ -249,7 +220,7 @@ impl Fs {
                     } else {
                         state.result = Some(Ok(()))
                     }
-                    
+
                     if let Some(waker) = state.waker.take() {
                         waker.wake();
                     }
@@ -276,15 +247,29 @@ thread_local! {
     static FS: RefCell<Fs> = RefCell::new(Fs::new());
 }
 
-async fn get_root() -> FileSystemDirectoryHandle {
-    let window = window().unwrap();
-    let navigator = window.navigator();
-    let storage = navigator.storage();
+async fn get_root() -> Result<FileSystemDirectoryHandle> {
+    let storage = if let Some(window) = window() {
+        let navigator = window.navigator();
+        navigator.storage()
+    } else if js_sys::global().is_instance_of::<WorkerGlobalScope>() {
+        let global = js_sys::global().unchecked_into::<WorkerGlobalScope>();
+        global.navigator().storage()
+    } else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "unable to access browser storage",
+        ));
+    };
     JsFuture::from(storage.get_directory())
         .await
-        .expect("Getting root directory failed")
+        .map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "unable to get root directory",
+            )
+        })?
         .dyn_into::<FileSystemDirectoryHandle>()
-        .expect(DYN_INTO_ERROR)
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::Unsupported, DYN_INTO_ERROR))
 }
 
 async fn child_dir(
@@ -322,7 +307,7 @@ async fn get_parent_dir<P: AsRef<Path>>(
     create: bool,
 ) -> Result<FileSystemDirectoryHandle> {
     let path = path.as_ref();
-    let root = get_root().await;
+    let root = get_root().await?;
     let mut parents_stack = vec![root];
     if let Some(path) = path.parent() {
         for component in path.components() {
