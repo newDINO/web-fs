@@ -1,10 +1,21 @@
-use std::{cell::RefCell, future::Future, io::{Error, ErrorKind, Result}, path::Path, pin::Pin, rc::Rc, task::{Context, Poll}};
+use std::{
+    cell::RefCell,
+    future::Future,
+    io::{Error, ErrorKind, Result},
+    path::Path,
+    pin::Pin,
+    rc::Rc,
+    task::{Context, Poll},
+};
 
 use futures_lite::AsyncWriteExt;
 use js_sys::Object;
 use wasm_bindgen::JsValue;
 
-use crate::{open_options::OpenFileFuture, read::ReadResult, util::set_value, FileType, Fs, Metadata, OpenOptions, Permissions, Task, FD, FS, INDEX, SIZE, TRUNCATE};
+use crate::{
+    open_options::OpenFileFuture, read::ReadResult, util::set_value, FileType, Fs, Metadata,
+    OpenOptions, Permissions, Task, FD, FS, INDEX, SIZE, TRUNCATE,
+};
 
 pub struct File {
     pub(crate) fd: usize,
@@ -56,17 +67,19 @@ impl File {
         let task_clone = task.clone();
         FS.with_borrow(|fs| fs.truncate(self.fd, size, task_clone));
         TruncateFuture {
-            task, size, file: self
+            task,
+            size,
+            file: self,
         }
     }
     pub async fn metadata(&self) -> Result<Metadata> {
         Ok(Metadata {
             ty: FileType::File,
-            len: self.size
+            len: self.size,
         })
     }
-    /// Currently always returns Err, 
-    /// because the permission of a file in *File System API* is determined when opening the file 
+    /// Currently always returns Err,
+    /// because the permission of a file in *File System API* is determined when opening the file
     /// and can't be changed afterwards.
     pub async fn set_permissions(&self, perm: Permissions) -> Result<()> {
         drop(perm);
@@ -90,7 +103,7 @@ impl Future for TruncateFuture<'_> {
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let inner_self = self.get_mut();
         let mut inner = inner_self.task.borrow_mut();
-        
+
         if let Some(val) = inner.result.take() {
             if let Ok(()) = val {
                 inner_self.file.size = inner_self.size;

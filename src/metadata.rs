@@ -1,5 +1,5 @@
+use std::io::{Error, ErrorKind, Result};
 use std::time::SystemTime;
-use std::io::{Result, Error, ErrorKind};
 
 use crate::FileType;
 
@@ -39,12 +39,9 @@ impl Metadata {
         Err(Error::from(ErrorKind::Other))
     }
     pub fn permissions(&self) -> Permissions {
-        Permissions {
-            readonly: false,
-        }
+        Permissions { readonly: false }
     }
 }
-
 
 pub struct Permissions {
     readonly: bool,

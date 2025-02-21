@@ -1,1 +1,1 @@
-wasm-pack test --headless --chrome --firefox
+wasm-pack test --headless --firefox
