@@ -312,9 +312,11 @@ async fn get_parent_dir<P: AsRef<Path>>(
     if let Some(path) = path.parent() {
         for component in path.components() {
             match component {
+                // Browser can't access system root, so this is PermissionDenied.
                 Component::Prefix(_) => return Err(Error::from(ErrorKind::PermissionDenied)),
                 Component::CurDir | Component::RootDir => (),
                 Component::ParentDir => {
+                    // Accessing the parent of the root is also not allowed.
                     if parents_stack.len() == 1 {
                         return Err(Error::from(ErrorKind::PermissionDenied));
                     } else {

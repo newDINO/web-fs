@@ -2,3 +2,4 @@
 2. More documentation.
 3. Behavior align with std::fs and async::fs.
 4. Performance test and stability test.
+5. Map NoModificationAllowedError error kind.

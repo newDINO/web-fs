@@ -1,7 +1,8 @@
-use std::{io::Error, task::Waker};
+use std::{io::{Error, ErrorKind}, task::Waker};
 
 use js_sys::{JsString, Object, Reflect};
-use wasm_bindgen::{JsThreadLocal, JsValue};
+use wasm_bindgen::{JsCast, JsThreadLocal, JsValue};
+use web_sys::DomException;
 
 use crate::GETTING_JS_FIELD_ERROR;
 
@@ -28,5 +29,17 @@ pub(crate) fn js_value_to_string(v: JsValue) -> String {
     format!("{}", Object::from(v).to_string())
 }
 pub(crate) fn js_value_to_error(v: JsValue) -> Error {
-    Error::other(js_value_to_string(v))
+    if let Ok(e) = v.clone().dyn_into::<DomException>() {
+        if e.name() == "NotFoundError" {
+            Error::from(ErrorKind::NotFound)
+        } else if e.name() == "NotAllowedError" {
+            Error::from(ErrorKind::PermissionDenied)
+        } else if e.name() == "NoModificationAllowedError" {
+            Error::from(ErrorKind::PermissionDenied)
+        } else {
+            Error::other(js_value_to_string(v))
+        }
+    } else {
+        Error::other(js_value_to_string(v))
+    }
 }
