@@ -1,8 +1,10 @@
 #![doc = include_str!("../README.md")]
 
+mod c_static_str;
+pub use c_static_str::*;
 mod open_options;
 use arena::Arena;
-use js_sys::{ArrayBuffer, JsString, Object, Reflect};
+use js_sys::{ArrayBuffer, Object, Reflect};
 pub use open_options::OpenOptions;
 use read::ReadResult;
 use util::{get_value, get_value_as_f64, js_value_to_error, set_value, Task};
@@ -31,8 +33,6 @@ use web_sys::{
     window, FileSystemDirectoryHandle, FileSystemFileHandle, FileSystemGetDirectoryOptions,
     FileSystemGetFileOptions, FileSystemRemoveOptions, MessageEvent, Worker, WorkerGlobalScope,
 };
-
-include!("./c_static_str.rs");
 
 const GETTING_JS_FIELD_ERROR: &str = "Getting js field error, this is an error of the crate.";
 const ARENA_REMOVE_ERROR: &str = "Removing from arena error, this is an error of the crate.";

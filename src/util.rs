@@ -1,4 +1,7 @@
-use std::{io::{Error, ErrorKind}, task::Waker};
+use std::{
+    io::{Error, ErrorKind},
+    task::Waker,
+};
 
 use js_sys::{JsString, Object, Reflect};
 use wasm_bindgen::{JsCast, JsThreadLocal, JsValue};
