@@ -262,7 +262,7 @@ dependencies = [
 
 [[package]]
 name = "web-fs"
-version = "0.2.5"
+version = "0.2.6"
 dependencies = [
  "futures-lite",
  "js-sys",
