@@ -1,7 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 mod c_static_str;
-pub use c_static_str::*;
+pub(crate) use c_static_str::*;
 mod open_options;
 use arena::Arena;
 use js_sys::{ArrayBuffer, Object, Reflect};
