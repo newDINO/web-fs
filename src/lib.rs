@@ -55,7 +55,7 @@ struct Fs {
 impl Fs {
     fn new() -> Self {
         let worker = Worker::new(&wasm_bindgen::link_to!(module = "/src/worker.js"))
-            .expect("Creating web worker failed. This crate relis on web worker to work.");
+            .expect("Creating web worker failed. This crate relies on web worker to work.");
 
         let inner = FsInner {
             opening_tasks: Arena::new(),
