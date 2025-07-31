@@ -8,6 +8,9 @@ But due to the restrictions of *File System API*, the API of this crate is not p
 
 File an issue if you find anything wrong. Pull requests are also welcomed.
 
+## Limitations
+This crate currently doesn't work on safari due to the reason that `FileSystemFileHandle` can't be posted to web worker.
+
 ## Maximum file size
 Due to the reason that *File System API* uses *number*(f64 in Rust) to represent file size, theoretically the max file size allowed is 2<sup>53</sup>, 
 or 9_007_199_254_740_992 or 8EB or 8192TB which is larger than the single file size limit of many file systems. 

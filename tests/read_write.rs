@@ -13,6 +13,7 @@ use web_fs::*;
 
 #[wasm_bindgen_test]
 async fn read_write() {
+    console_error_panic_hook::set_once();
     use futures_lite::AsyncReadExt;
     use futures_lite::AsyncWriteExt;
     // write
@@ -69,6 +70,7 @@ async fn read_write() {
 
 #[wasm_bindgen_test]
 async fn multi_file() {
+    console_error_panic_hook::set_once();
     create_dir("dir1").await.unwrap();
     create_dir_all("dir2/dir1").await.unwrap();
 
