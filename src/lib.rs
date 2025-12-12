@@ -1,20 +1,21 @@
 #![doc = include_str!("../README.md")]
 
+use wasm_bindgen_futures::{JsFuture, stream::JsStream};
+
 mod c_static_str;
 pub(crate) use c_static_str::*;
 mod open_options;
 use arena::Arena;
 use js_sys::{ArrayBuffer, Object, Reflect};
-pub use open_options::OpenOptions;
+pub use open_options::{OpenFileFuture, OpenOptions};
 use read::ReadResult;
-use util::{get_value, get_value_as_f64, js_value_to_error, set_value, Task};
-use wasm_bindgen_futures::{stream::JsStream, JsFuture};
+use util::{Task, get_value, get_value_as_f64, js_value_to_error, set_value};
 mod arena;
 mod file;
 mod read;
 mod seek;
 mod write;
-pub use file::File;
+pub use file::{File, TruncateFuture};
 mod metadata;
 mod util;
 pub use metadata::*;
@@ -30,8 +31,9 @@ use std::{
 use futures_lite::{AsyncReadExt, AsyncWriteExt, Stream, StreamExt};
 use wasm_bindgen::prelude::*;
 use web_sys::{
-    window, FileSystemDirectoryHandle, FileSystemFileHandle, FileSystemGetDirectoryOptions,
+    FileSystemDirectoryHandle, FileSystemFileHandle, FileSystemGetDirectoryOptions,
     FileSystemGetFileOptions, FileSystemRemoveOptions, MessageEvent, Worker, WorkerGlobalScope,
+    window,
 };
 
 const GETTING_JS_FIELD_ERROR: &str = "Getting js field error, this is an error of the crate.";
